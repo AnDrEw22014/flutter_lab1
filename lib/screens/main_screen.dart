@@ -1,9 +1,10 @@
-import 'user_profile_screen.dart';
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../widgets/device_status_badge.dart';
-import '../widgets/focus_mode_card.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../data/repositories/auth_repository_impl.dart';
+import 'login_screen.dart';
+import 'user_profile_screen.dart';
 
-// StatefulWidget використовуємо, щоб повзунок яскравості міг рухатися
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -12,18 +13,114 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  double _brightness = 75.0; // Mock-дані яскравості
+  final _authRepo = AuthRepositoryImpl();
+  List<String> _items = [];
+  bool _isLoading = true;
+  String _userName = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name = await _authRepo.getCurrentUserName();
+    final savedItemsJson = prefs.getString('crud_items');
+
+    setState(() {
+      _userName = name ?? 'Користувач';
+      if (savedItemsJson != null) {
+        _items = List<String>.from(jsonDecode(savedItemsJson));
+      } else {
+        _items = ['Фокус-сесія #1 (30 хв)', 'Режим читання (20 хв)'];
+      }
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _saveData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('crud_items', jsonEncode(_items));
+  }
+
+  void _addItem(String title) {
+    if (title.trim().isEmpty) return;
+    setState(() => _items.add(title.trim()));
+    _saveData();
+  }
+
+  void _editItem(int index, String newTitle) {
+    if (newTitle.trim().isEmpty) return;
+    setState(() => _items[index] = newTitle.trim());
+    _saveData();
+  }
+
+  void _deleteItem(int index) {
+    setState(() => _items.removeAt(index));
+    _saveData();
+  }
+
+  void _showItemDialog({int? index}) {
+    final isEditing = index != null;
+    final controller = TextEditingController(text: isEditing ? _items[index] : '');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(isEditing ? 'Редагувати режим' : 'Новий режим'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'Назва сесії / освітлення',
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Скасувати', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6366F1),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () {
+              if (isEditing) {
+                _editItem(index, controller.text);
+              } else {
+                _addItem(controller.text);
+              }
+              Navigator.pop(context);
+            },
+            child: Text(isEditing ? 'Зберегти' : 'Додати', style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _logout() async {
+    await _authRepo.logout();
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Керування лампою'),
+        title: Text('Вітаємо, $_userName!'),
         actions: [
-          const Center(child: DeviceStatusBadge()),
-          const SizedBox(width: 8),
           IconButton(
-            icon: const Icon(Icons.person),
+            icon: const Icon(Icons.person_outline, size: 26),
             onPressed: () {
               Navigator.push(
                 context,
@@ -31,75 +128,80 @@ class _MainScreenState extends State<MainScreen> {
               );
             },
           ),
+          IconButton(
+            icon: const Icon(Icons.logout_rounded, color: Colors.redAccent, size: 24),
+            onPressed: _logout,
+          ),
           const SizedBox(width: 8),
         ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView( // Запобігає overflow по вертикалі
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const Text(
-                'Поточна сесія (Pomodoro)',
-                style: TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                width: 220,
-                height: 220,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.blueAccent, width: 4),
-                ),
-                child: const Center(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _items.isEmpty
+              ? const Center(
                   child: Text(
-                    '25:00', // Mock-дані таймера
-                    style: TextStyle(fontSize: 56, fontWeight: FontWeight.bold),
+                    'Список порожній.\nНатисніть + щоб додати режим!',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
                   ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  itemCount: _items.length,
+                  itemBuilder: (context, index) {
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF1E293B), Color(0xFF334155)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withAlpha(50),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          )
+                        ],
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        leading: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF6366F1).withAlpha(40),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.lightbulb_outline, color: Color(0xFF818CF8)),
+                        ),
+                        title: Text(
+                          _items[index],
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, color: Color(0xFF38BDF8)),
+                              onPressed: () => _showItemDialog(index: index),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Color(0xFFF87171)),
+                              onPressed: () => _deleteItem(index),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              ),
-              const SizedBox(height: 40),
-              Row( // Використання Row + Expanded для респонсивності
-                children: [
-                  const Icon(Icons.lightbulb_outline),
-                  Expanded(
-                    child: Slider(
-                      value: _brightness,
-                      min: 0,
-                      max: 100,
-                      activeColor: Colors.blueAccent,
-                      onChanged: (value) {
-                        setState(() {
-                          _brightness = value;
-                        });
-                      },
-                    ),
-                  ),
-                  const Icon(Icons.lightbulb),
-                ],
-              ),
-              const SizedBox(height: 32),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Режими освітлення',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Row(
-                children: [
-                  FocusModeCard(title: 'Кодинг', icon: Icons.code, color: Colors.blue),
-                  SizedBox(width: 12),
-                  FocusModeCard(title: 'Читання', icon: Icons.menu_book, color: Colors.orange),
-                  SizedBox(width: 12),
-                  FocusModeCard(title: 'Релакс', icon: Icons.coffee, color: Colors.green),
-                ],
-              ),
-            ],
-          ),
-        ),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: const Color(0xFF6366F1),
+        onPressed: () => _showItemDialog(),
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text('Додати', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
     );
   }

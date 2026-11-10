@@ -1,96 +1,77 @@
 import 'package:flutter/material.dart';
-import '../widgets/primary_button.dart';
-import 'login_screen.dart';
+import '../data/repositories/auth_repository_impl.dart';
 
-class UserProfileScreen extends StatelessWidget {
+class UserProfileScreen extends StatefulWidget {
   const UserProfileScreen({super.key});
+
+  @override
+  State<UserProfileScreen> createState() => _UserProfileScreenState();
+}
+
+class _UserProfileScreenState extends State<UserProfileScreen> {
+  final _authRepo = AuthRepositoryImpl();
+  String _email = '';
+  String _name = '';
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfileData();
+  }
+
+  Future<void> _loadProfileData() async {
+    final email = await _authRepo.getCurrentUserEmail();
+    final name = await _authRepo.getCurrentUserName();
+
+    setState(() {
+      _email = email ?? 'Невідомо';
+      _name = name ?? 'Користувач';
+      _isLoading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Профіль'),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const CircleAvatar(
-                radius: 50,
-                backgroundColor: Colors.blueAccent,
-                child: Icon(Icons.person, size: 50, color: Colors.white),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Андрій Лашта',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'student@lpnu.ua',
-                style: TextStyle(color: Colors.grey),
-              ),
-              const SizedBox(height: 32),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Статистика фокусу',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+      appBar: AppBar(title: const Text('Профіль користувача')),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircleAvatar(
+                        radius: 40,
+                        child: Icon(Icons.person, size: 40),
+                      ),
+                      const SizedBox(height: 20),
+                      ListTile(
+                        leading: const Icon(Icons.badge),
+                        title: const Text("Ім'я"),
+                        subtitle: Text(
+                          _name,
+                          style: const TextStyle(fontSize: 16),
+                        ),
+                      ),
+                      const Divider(),
+                      ListTile(
+                        leading: const Icon(Icons.email),
+                        title: const Text('Email'),
+                        subtitle: Text(
+                          _email,
+                          style: const TextStyle(fontSize: 16),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  _buildStatCard('Усього годин', '42 год'),
-                  const SizedBox(width: 16),
-                  _buildStatCard('Улюблений', 'Кодинг'),
-                ],
-              ),
-              const SizedBox(height: 40),
-              PrimaryButton(
-                text: 'Вийти з акаунта',
-                onPressed: () {
-                  // Повне очищення стеку навігації та повернення на LoginScreen
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(builder: (context) => const LoginScreen()),
-                    (route) => false,
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Локальний метод для декомпозиції карток статистики
-  Widget _buildStatCard(String title, String value) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          children: [
-            Text(title, style: const TextStyle(color: Colors.grey)),
-            const SizedBox(height: 8),
-            Text(
-              value, 
-              style: const TextStyle(
-                fontSize: 20, 
-                fontWeight: FontWeight.bold, 
-                color: Colors.blueAccent
-              )
             ),
-          ],
-        ),
-      ),
     );
   }
 }
