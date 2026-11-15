@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../data/repositories/auth_repository_impl.dart';
+import '../data/services/network_service.dart';
 import 'registration_screen.dart';
 import 'main_screen.dart';
 
@@ -22,6 +24,23 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
     _formKey.currentState!.save();
 
+    // 1. Перевіряємо наявність інтернету через NetworkService перед входом
+    final networkService = context.read<NetworkService>();
+    final hasInternet = await networkService.checkInternetNow();
+
+    if (!mounted) return;
+
+    if (!hasInternet) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Відсутнє інтернет-з\'єднання. Вхід заблоковано!'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return; // Блокуємо подальше виконання логіну
+    }
+
+    // 2. Якщо інтернет є — виконуємо стандартний вхід
     setState(() => _isLoading = true);
     final success = await _authRepo.login(_email, _password);
     setState(() => _isLoading = false);
