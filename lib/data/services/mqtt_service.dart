@@ -4,40 +4,53 @@ import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 
 class MqttService extends ChangeNotifier {
-  late MqttServerClient _client;
-  StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>? _updatesSub;
-
-  // Унікальний топік (обов'язково вкажіть його в описі PR)
+  static const String broker = 'broker.hivemq.com';
+  static const int port = 1883;
   static const String topic = 'lviv_poly/iot/lab4/lashta/temperature';
 
-  String _latestPayload = 'Очікування даних...';
-  String get latestPayload => _latestPayload;
+  late final MqttServerClient _client;
+  StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>? _updatesSub;
 
   bool _isBrokerConnected = false;
+  String _latestPayload = 'Очікування даних...';
+
   bool get isBrokerConnected => _isBrokerConnected;
+  String get latestPayload => _latestPayload;
 
-  Future<void> connectAndListen() async {
-    if (_isBrokerConnected) return;
-
-    // Генеруємо унікальний ID клієнта, щоб брокер не розривав з'єднання
-    final clientId = 'flutter_lashta_${DateTime.now().millisecondsSinceEpoch}';
-    _client = MqttServerClient('broker.hivemq.com', clientId);
-    _client.port = 1883;
+  MqttService() {
+    final clientId =
+        'flutter_lashta_${DateTime.now().millisecondsSinceEpoch}';
+    _client = MqttServerClient.withPort(broker, clientId, port);
     _client.logging(on: false);
     _client.keepAlivePeriod = 20;
+    _client.autoReconnect = true;
 
-    _client.onDisconnected = () {
-      _isBrokerConnected = false;
-      notifyListeners();
-    };
+    // Колбек при успішному підключенні або автоперепідключенні
+    _client.onConnected = _onConnected;
+    _client.onAutoReconnected = _onConnected;
 
-    _client.onConnected = () {
-      _isBrokerConnected = true;
-      notifyListeners();
-    };
+    // Перевірка на пропадання з'єднання з брокером (обрив мережі / тайм-аут Keep-Alive)
+    _client.onDisconnected = _onDisconnected;
+    _client.onAutoReconnect = _onDisconnected;
+  }
+
+  void _onConnected() {
+    _isBrokerConnected = true;
+    notifyListeners();
+  }
+
+  void _onDisconnected() {
+    _isBrokerConnected = false;
+    notifyListeners();
+  }
+
+  Future<void> connectAndListen() async {
+    if (_client.connectionStatus?.state == MqttConnectionState.connected) {
+      return;
+    }
 
     final connMessage = MqttConnectMessage()
-        .withClientIdentifier(clientId)
+        .withClientIdentifier(_client.clientIdentifier)
         .startClean()
         .withWillQos(MqttQos.atMostOnce);
     _client.connectionMessage = connMessage;
@@ -45,8 +58,10 @@ class MqttService extends ChangeNotifier {
     try {
       await _client.connect();
     } catch (e) {
-      debugPrint('MQTT Connection failed: $e');
+      debugPrint('Помилка підключення до MQTT-брокера: $e');
       _client.disconnect();
+      _isBrokerConnected = false;
+      notifyListeners();
       return;
     }
 
@@ -56,30 +71,57 @@ class MqttService extends ChangeNotifier {
 
       _client.subscribe(topic, MqttQos.atMostOnce);
 
-      // Зберігаємо підписку на потік для подальшого закриття
-      _updatesSub = _client.updates?.listen((messages) {
-        final recMess = messages[0].payload as MqttPublishMessage;
-        final payload =
-            MqttPublishPayload.bytesToStringAsString(recMess.payload.message);
+      // Скасовуємо попередню підписку, якщо вона існувала, щоб уникнути дублювання
+      await _updatesSub?.cancel();
 
-        _latestPayload = payload;
-        notifyListeners();
-      });
+      // Зберігаємо підписку на потік для подальшого закриття та обробки помилок
+      _updatesSub = _client.updates?.listen(
+        (messages) {
+          if (messages.isEmpty) return;
+
+          try {
+            final recMess = messages[0].payload as MqttPublishMessage;
+            final payload = MqttPublishPayload.bytesToStringAsString(
+              recMess.payload.message,
+            );
+
+            _latestPayload = payload;
+            notifyListeners();
+          } catch (e) {
+            debugPrint('Помилка розбору MQTT-повідомлення: $e');
+          }
+        },
+        // Перевірка на помилку потоку або його закриття при втраті мережі
+        onError: (Object error) {
+          debugPrint('Помилка потоку MQTT updates: $error');
+          _isBrokerConnected = false;
+          notifyListeners();
+        },
+        onDone: () {
+          debugPrint('Потік MQTT updates закрито');
+          _isBrokerConnected = false;
+          notifyListeners();
+        },
+        cancelOnError: false,
+      );
+    } else {
+      _isBrokerConnected = false;
+      notifyListeners();
     }
   }
 
-  void disconnect() {
-    _updatesSub?.cancel();
-    if (_isBrokerConnected) {
-      _client.disconnect();
-    }
+  Future<void> disconnect() async {
+    await _updatesSub?.cancel();
+    _updatesSub = null;
+    _client.disconnect();
     _isBrokerConnected = false;
     notifyListeners();
   }
 
   @override
   void dispose() {
-    disconnect(); // Закриваємо потік та відключаємось при знищенні
+    _updatesSub?.cancel();
+    _client.disconnect();
     super.dispose();
   }
 }
