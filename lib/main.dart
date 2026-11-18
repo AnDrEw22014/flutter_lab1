@@ -1,3 +1,5 @@
+import 'data/repositories/remote_device_repository.dart';
+import 'domain/repositories/idevice_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'data/services/mqtt_service.dart';
@@ -20,9 +22,10 @@ class MyApp extends StatelessWidget {
     // і автоматично викликає їх метод dispose() при закритті застосунку
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => NetworkService()),
-        ChangeNotifierProvider(create: (_) => MqttService()),
-      ],
+  ChangeNotifierProvider(create: (_) => NetworkService()),
+  ChangeNotifierProvider(create: (_) => MqttService()),
+  Provider<IDeviceRepository>(create: (_) => RemoteDeviceRepository()),
+],
       child: MaterialApp(
         title: 'IoT Smart App',
         debugShowCheckedModeBanner: false,
