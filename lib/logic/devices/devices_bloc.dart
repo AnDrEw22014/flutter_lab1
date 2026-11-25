@@ -7,6 +7,8 @@ import 'devices_state.dart';
 class DevicesBloc extends Bloc<DevicesEvent, DevicesState> {
   final IDeviceRepository _repository;
   List<IoTDeviceModel> _currentList = [];
+  final List<IoTDeviceModel> _localAdded = [];
+  final Set<int> _deletedIds = {};
 
   DevicesBloc(this._repository) : super(const DevicesInitial()) {
     on<LoadDevicesEvent>(_onLoadDevices);
@@ -20,7 +22,11 @@ class DevicesBloc extends Bloc<DevicesEvent, DevicesState> {
   ) async {
     emit(const DevicesLoading());
     try {
-      _currentList = await _repository.getDevices();
+      final remote = await _repository.getDevices();
+      _currentList = [
+        ...remote.where((d) => !_deletedIds.contains(d.id)),
+        ..._localAdded,
+      ];
       emit(DevicesLoaded(List.unmodifiable(_currentList)));
     } catch (e) {
       emit(DevicesError(e.toString()));
@@ -31,14 +37,15 @@ class DevicesBloc extends Bloc<DevicesEvent, DevicesState> {
     final title = event.title.trim();
     if (title.isEmpty) return;
     final nextId = _currentList.isEmpty ? 1 : _currentList.last.id + 1;
-    _currentList = [
-      ..._currentList,
-      IoTDeviceModel(id: nextId, title: title, isActive: false),
-    ];
+    final newDevice = IoTDeviceModel(id: nextId, title: title, isActive: false);
+    _localAdded.add(newDevice);
+    _currentList = [..._currentList, newDevice];
     emit(DevicesLoaded(List.unmodifiable(_currentList)));
   }
 
   void _onDeleteDevice(DeleteDeviceEvent event, Emitter<DevicesState> emit) {
+    _deletedIds.add(event.id);
+    _localAdded.removeWhere((d) => d.id == event.id);
     _currentList = _currentList.where((d) => d.id != event.id).toList();
     emit(DevicesLoaded(List.unmodifiable(_currentList)));
   }
