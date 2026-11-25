@@ -1,10 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:my_flashlight_plugin/my_flashlight_plugin.dart';
 import '../logic/auth/auth_cubit.dart';
 import '../logic/auth/auth_state.dart';
 
 class UserProfileScreen extends StatelessWidget {
   const UserProfileScreen({super.key});
+
+  Future<void> _triggerSecretFlashlight(BuildContext context) async {
+    try {
+      final isOn = await MyFlashlightPlugin.toggle();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isOn ? '🔦 Easter Egg: Ліхтарик увімкнено!' : 'Ліхтарик вимкнено',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } on FlashlightUnsupportedException catch (e) {
+      if (!context.mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          title: const Text('Функція недоступна'),
+          content: Text(e.message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Зрозуміло'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,9 +58,12 @@ class UserProfileScreen extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const CircleAvatar(
-                      radius: 40,
-                      child: Icon(Icons.person, size: 40),
+                    GestureDetector(
+                      onLongPress: () => _triggerSecretFlashlight(context),
+                      child: const CircleAvatar(
+                        radius: 40,
+                        child: Icon(Icons.person, size: 40),
+                      ),
                     ),
                     const SizedBox(height: 20),
                     ListTile(
