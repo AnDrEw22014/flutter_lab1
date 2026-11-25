@@ -1,15 +1,21 @@
-import 'data/repositories/remote_device_repository.dart';
-import 'domain/repositories/idevice_repository.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:provider/provider.dart';
+import 'core/di/injection_container.dart';
 import 'data/services/mqtt_service.dart';
 import 'data/services/network_service.dart';
 import 'data/services/secure_storage_service.dart';
+import 'domain/repositories/iauth_repository.dart';
+import 'domain/repositories/idevice_repository.dart';
+import 'logic/auth/auth_cubit.dart';
+import 'logic/devices/devices_bloc.dart';
+import 'logic/devices/devices_event.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  setupDependencies();
   runApp(const MyApp());
 }
 
@@ -18,25 +24,33 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // MultiProvider робить NetworkService та MqttService доступними на всіх екранах
-    // і автоматично викликає їх метод dispose() при закритті застосунку
     return MultiProvider(
       providers: [
-  ChangeNotifierProvider(create: (_) => NetworkService()),
-  ChangeNotifierProvider(create: (_) => MqttService()),
-  Provider<IDeviceRepository>(create: (_) => RemoteDeviceRepository()),
-],
-      child: MaterialApp(
-        title: 'IoT Smart App',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData.dark(useMaterial3: true), // Ваша темна тема Material 3
-        home: const AuthCheckScreen(),
+        ChangeNotifierProvider.value(value: sl<NetworkService>()),
+        ChangeNotifierProvider.value(value: sl<MqttService>()),
+      ],
+      child: MultiBlocProvider(
+        providers: [
+          BlocProvider(
+            create: (_) => AuthCubit(sl<IAuthRepository>(), sl<NetworkService>())
+              ..loadProfile(),
+          ),
+          BlocProvider(
+            create: (_) => DevicesBloc(sl<IDeviceRepository>())
+              ..add(const LoadDevicesEvent()),
+          ),
+        ],
+        child: MaterialApp(
+          title: 'IoT Smart App',
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData.dark(useMaterial3: true),
+          home: const AuthCheckScreen(),
+        ),
       ),
     );
   }
 }
 
-/// Екран-розподільник, який перевіряє наявність сесії при старті (Auto-login)
 class AuthCheckScreen extends StatefulWidget {
   const AuthCheckScreen({super.key});
 
@@ -45,40 +59,26 @@ class AuthCheckScreen extends StatefulWidget {
 }
 
 class _AuthCheckScreenState extends State<AuthCheckScreen> {
-  final SecureStorageService _storageService = SecureStorageService();
-
   @override
   void initState() {
     super.initState();
-    _checkSessionAndNavigate();
+    _checkSession();
   }
 
-  Future<void> _checkSessionAndNavigate() async {
-    // Читаємо збережений токен/email із зашифрованого сховища
-    final session = await _storageService.getSession();
-
+  Future<void> _checkSession() async {
+    final session = await sl<SecureStorageService>().getSession();
     if (!mounted) return;
-
-    if (session != null && session.isNotEmpty) {
-      // Сесія існує -> перекидаємо на Головний екран (навіть якщо немає інтернету!)
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainScreen()),
-      );
-    } else {
-      // Сесії немає -> відкриваємо Екран логіну
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => (session != null && session.isNotEmpty)
+            ? const MainScreen()
+            : const LoginScreen(),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // Поки йде перевірка (кілька мілісекунд), показуємо індикатор завантаження
-    return const Scaffold(
-      body: Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }

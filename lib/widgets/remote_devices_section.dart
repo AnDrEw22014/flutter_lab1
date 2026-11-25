@@ -1,28 +1,39 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../domain/models/iot_device_model.dart';
-import '../domain/repositories/idevice_repository.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../logic/devices/devices_bloc.dart';
+import '../logic/devices/devices_event.dart';
+import '../logic/devices/devices_state.dart';
 
-class RemoteDevicesSection extends StatefulWidget {
+class RemoteDevicesSection extends StatelessWidget {
   const RemoteDevicesSection({super.key});
 
-  @override
-  State<RemoteDevicesSection> createState() => _RemoteDevicesSectionState();
-}
-
-class _RemoteDevicesSectionState extends State<RemoteDevicesSection> {
-  late Future<List<IoTDeviceModel>> _devicesFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _devicesFuture = context.read<IDeviceRepository>().getDevices();
-  }
-
-  void _refresh() {
-    setState(() {
-      _devicesFuture = context.read<IDeviceRepository>().getDevices();
-    });
+  void _showAddDialog(BuildContext context) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Новий хмарний вузол'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(hintText: 'Назва сценарію / лампи'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text('Скасувати'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              context.read<DevicesBloc>().add(AddDeviceEvent(controller.text));
+              Navigator.pop(dialogCtx);
+            },
+            child: const Text('Додати'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -36,37 +47,41 @@ class _RemoteDevicesSectionState extends State<RemoteDevicesSection> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  'Хмарні сценарії (REST API)',
+                  'Хмарні сценарії (BLoC)',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.sync, size: 20),
-                  onPressed: _refresh,
-                  tooltip: 'Оновити з сервера',
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline, size: 22),
+                      onPressed: () => _showAddDialog(context),
+                      tooltip: 'Додати вузол',
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.sync, size: 20),
+                      onPressed: () => context
+                          .read<DevicesBloc>()
+                          .add(const LoadDevicesEvent()),
+                      tooltip: 'Оновити з сервера',
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
           Expanded(
-            child: FutureBuilder<List<IoTDeviceModel>>(
-              future: _devicesFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
+            child: BlocBuilder<DevicesBloc, DevicesState>(
+              builder: (context, state) {
+                if (state is DevicesLoading) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                if (snapshot.hasError) {
+                if (state is DevicesError) {
                   return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Text(
-                        '${snapshot.error}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.redAccent),
-                      ),
-                    ),
+                    child: Text(state.message,
+                        style: const TextStyle(color: Colors.redAccent)),
                   );
                 }
-                final devices = snapshot.data ?? [];
+                final devices = state is DevicesLoaded ? state.devices : [];
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   itemCount: devices.length,
@@ -77,21 +92,19 @@ class _RemoteDevicesSectionState extends State<RemoteDevicesSection> {
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
                         leading: Icon(
-                          item.isActive
-                              ? Icons.cloud_done
-                              : Icons.lightbulb_outline,
+                          item.isActive ? Icons.cloud_done : Icons.lightbulb_outline,
                           color: item.isActive
                               ? Colors.greenAccent
                               : const Color(0xFF818CF8),
                         ),
-                        title: Text(
-                          'Вузол #${item.id}: ${item.title}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          item.isActive ? 'Синхронізовано' : 'Очікує дії',
-                          style: const TextStyle(fontSize: 12),
+                        title: Text('Вузол #${item.id}: ${item.title}',
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline,
+                              color: Colors.redAccent),
+                          onPressed: () => context
+                              .read<DevicesBloc>()
+                              .add(DeleteDeviceEvent(item.id)),
                         ),
                       ),
                     );

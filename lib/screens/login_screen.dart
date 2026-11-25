@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../data/repositories/auth_repository_impl.dart';
-import '../data/services/network_service.dart';
-import 'registration_screen.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../logic/auth/auth_cubit.dart';
+import '../logic/auth/auth_state.dart';
 import 'main_screen.dart';
+import 'registration_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -14,131 +14,103 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _authRepo = AuthRepositoryImpl();
+  final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
 
-  String _email = '';
-  String _password = '';
-  bool _isLoading = false;
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
+    super.dispose();
+  }
 
-  void _submitLogin() async {
+  void _onLoginPressed() {
     if (!_formKey.currentState!.validate()) return;
-    _formKey.currentState!.save();
-
-    // 1. Перевіряємо наявність інтернету через NetworkService перед входом
-    final networkService = context.read<NetworkService>();
-    final hasInternet = await networkService.checkInternetNow();
-
-    if (!mounted) return;
-
-    if (!hasInternet) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Відсутнє інтернет-з\'єднання. Вхід заблоковано!'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return; // Блокуємо подальше виконання логіну
-    }
-
-    // 2. Якщо інтернет є — виконуємо стандартний вхід
-    setState(() => _isLoading = true);
-    final success = await _authRepo.login(_email, _password);
-    setState(() => _isLoading = false);
-
-    if (!mounted) return;
-
-    if (success) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const MainScreen()),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Невірний email або пароль! Спочатку зареєструйтесь.'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-    }
+    context.read<AuthCubit>().login(_emailCtrl.text.trim(), _passwordCtrl.text);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Icon(Icons.lightbulb, size: 70, color: Color(0xFF6366F1)),
-                const SizedBox(height: 12),
-                const Text(
-                  'Smart Focus Lamp',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Увійдіть для керування пристроєм',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 36),
-                TextFormField(
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    prefixIcon: Icon(Icons.email_outlined),
-                  ),
-                  keyboardType: TextInputType.emailAddress,
-                  validator: (val) {
-                    if (val == null || val.isEmpty) return 'Введіть email';
-                    if (!val.contains('@') || !val.contains('.')) return 'Некоректний email';
-                    return null;
-                  },
-                  onSaved: (val) => _email = val ?? '',
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Пароль',
-                    prefixIcon: Icon(Icons.lock_outline),
-                  ),
-                  validator: (val) => (val == null || val.isEmpty) ? 'Введіть пароль' : null,
-                  onSaved: (val) => _password = val ?? '',
-                ),
-                const SizedBox(height: 24),
-                _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : SizedBox(
-                        height: 50,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF6366F1),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          onPressed: _submitLogin,
-                          child: const Text('Увійти', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                        ),
+      body: BlocConsumer<AuthCubit, AuthState>(
+        listener: (context, state) {
+          if (state is AuthAuthenticated) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const MainScreen()),
+            );
+          } else if (state is AuthFailure) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(state.message), backgroundColor: Colors.redAccent),
+            );
+          }
+        },
+        builder: (context, state) {
+          final isLoading = state is AuthLoading;
+          return Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Icon(Icons.lightbulb, size: 70, color: Color(0xFF6366F1)),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Smart Focus Lamp',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 32),
+                    TextFormField(
+                      controller: _emailCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Email',
+                        prefixIcon: Icon(Icons.email_outlined),
                       ),
-                const SizedBox(height: 16),
-                TextButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const RegistrationScreen()),
-                    );
-                  },
-                  child: const Text('Немає акаунту? Зареєструватися', style: TextStyle(color: Color(0xFF818CF8))),
+                      validator: (val) => (val == null || !val.contains('@'))
+                          ? 'Некоректний email'
+                          : null,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _passwordCtrl,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Пароль',
+                        prefixIcon: Icon(Icons.lock_outline),
+                      ),
+                      validator: (val) =>
+                          (val == null || val.isEmpty) ? 'Введіть пароль' : null,
+                    ),
+                    const SizedBox(height: 24),
+                    isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : SizedBox(
+                            height: 50,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF6366F1),
+                              ),
+                              onPressed: _onLoginPressed,
+                              child: const Text('Увійти',
+                                  style: TextStyle(color: Colors.white, fontSize: 16)),
+                            ),
+                          ),
+                    TextButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const RegistrationScreen()),
+                      ),
+                      child: const Text('Немає акаунту? Зареєструватися'),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
